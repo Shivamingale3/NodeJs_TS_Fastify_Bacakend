@@ -9,7 +9,6 @@ const envSchema = z.object({
   DATABASE_URL: z.string(),
   LOKI_HOST: z.string().url(),
   JWT_SECRET: z.string().min(10),
-  ADMIN_SECRET: z.string().optional(),
 });
 
 const _env = envSchema.safeParse(process.env);

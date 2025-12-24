@@ -1,5 +1,5 @@
 import { FastifyInstance } from "fastify";
-import { AdminController } from "./admin.controller";
+import { AdminController } from "../controllers/admin.controller"; // Move controller next
 
 export async function adminRoutes(app: FastifyInstance) {
   const adminController = new AdminController();

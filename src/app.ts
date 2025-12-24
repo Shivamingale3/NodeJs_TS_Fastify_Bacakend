@@ -7,15 +7,23 @@ import Fastify, {
 import { loggerConfig } from "./utils/logger";
 import { env } from "./config/env";
 import authGuardPlugin from "./plugins/auth-guard";
-import { authRoutes } from "./modules/auth/auth.routes";
-import { adminRoutes } from "./api/admin/admin.routes";
-import { userRoutes } from "./api/user/user.routes";
+import { authRoutes } from "./routes/auth.routes";
+import { adminRoutes } from "./routes/admin.routes";
+import { userRoutes } from "./routes/user.routes";
+import {
+  validatorCompiler,
+  serializerCompiler,
+  ZodTypeProvider,
+} from "fastify-type-provider-zod";
 
 export function buildApp(): FastifyInstance {
   const app = Fastify({
     logger: loggerConfig,
     disableRequestLogging: false,
-  });
+  }).withTypeProvider<ZodTypeProvider>();
+
+  app.setValidatorCompiler(validatorCompiler);
+  app.setSerializerCompiler(serializerCompiler);
 
   app.register(authGuardPlugin);
   app.register(authRoutes, { prefix: "/auth" });
