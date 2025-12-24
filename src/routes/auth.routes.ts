@@ -2,19 +2,7 @@ import { FastifyInstance } from "fastify";
 import { ZodTypeProvider } from "fastify-type-provider-zod";
 import { AuthController } from "../controllers/auth.controller";
 import { AuthService } from "../services/auth.service";
-import { z } from "zod";
-
-const registerSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(6),
-  name: z.string(),
-  role: z.enum(["ADMIN", "MANAGER", "USER"]).optional(),
-});
-
-const loginSchema = z.object({
-  email: z.string().email(),
-  password: z.string(),
-});
+import { registerSchema, loginSchema } from "../types/auth.types";
 
 export async function authRoutes(app: FastifyInstance) {
   const authService = new AuthService(app);
