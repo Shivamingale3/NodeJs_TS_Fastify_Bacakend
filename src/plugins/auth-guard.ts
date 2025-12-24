@@ -29,39 +29,33 @@ const authGuardPlugin: FastifyPluginAsync = async (app) => {
   );
 
   // Global Hook: Secure by Default
-  app.addHook("onRequest", async (request, reply) => {
-    // Check if route is public
-    const config = request.routeSchema.config || {}; // Access route config
-    // Note: Fastify puts config in routeOptions.config usually, but check latest API.
-    // Actually, inside onRequest, we can access context config via `request.context.config`
+  app.addHook(
+    "onRequest",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      // Check if route is public
+      // @ts-ignore
+      const routeConfig = request.routeOptions.config;
 
-    // However, `request.context` might not be fully populated in onRequest depending on fastify version?
-    // Let's use `request.routeOptions.config`.
+      // @ts-ignore
+      if (request.routerPath === "/health" || request.url === "/health") return;
 
-    // Wait, `request.routeOptions` is available in Fastify v4+.
+      if (routeConfig?.public) {
+        return;
+      }
 
-    // If it's a documentation route or special route (like /health), we might want to bypass too?
-    // But better to be explicit.
-
-    if (request.routerPath === "/health") return; // Explicitly allow health check if defined globally?
-    // Usually health check should have config: { public: true }
-
-    if (request.routeOptions.config?.public) {
-      return;
+      try {
+        await request.jwtVerify();
+      } catch (err) {
+        reply
+          .status(401)
+          .send({
+            success: false,
+            message: "Unauthorized",
+            error: "Missing or Invalid Token",
+          });
+      }
     }
-
-    try {
-      await request.jwtVerify();
-    } catch (err) {
-      reply
-        .status(401)
-        .send({
-          success: false,
-          message: "Unauthorized",
-          error: "Missing or Invalid Token",
-        });
-    }
-  });
+  );
 };
 
 export default fp(authGuardPlugin);
