@@ -1,12 +1,16 @@
-import Fastify, { FastifyInstance } from "fastify";
 import { logger } from "./utils/logger";
 import { env } from "./config/env";
+import authGuardPlugin from "./plugins/auth-guard";
+import { authRoutes } from "./modules/auth/auth.routes";
 
 export function buildApp(): FastifyInstance {
   const app = Fastify({
     logger: logger, // Use our custom pino instance
     disableRequestLogging: false,
   });
+
+  app.register(authGuardPlugin);
+  app.register(authRoutes, { prefix: "/auth" });
 
   // Health Check Generic
   app.get("/health", async () => {
