@@ -8,6 +8,8 @@ import { logger } from "./utils/logger";
 import { env } from "./config/env";
 import authGuardPlugin from "./plugins/auth-guard";
 import { authRoutes } from "./modules/auth/auth.routes";
+import { adminRoutes } from "./api/admin/admin.routes";
+import { userRoutes } from "./api/user/user.routes";
 
 export function buildApp(): FastifyInstance {
   const app = Fastify({
@@ -17,6 +19,8 @@ export function buildApp(): FastifyInstance {
 
   app.register(authGuardPlugin);
   app.register(authRoutes, { prefix: "/auth" });
+  app.register(adminRoutes, { prefix: "/api/admin" });
+  app.register(userRoutes, { prefix: "/api/user" });
 
   // Health Check Generic
   app.get("/health", async () => {
