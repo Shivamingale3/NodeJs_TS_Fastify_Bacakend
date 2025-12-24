@@ -1,38 +1,35 @@
 import pino from "pino";
 import { env } from "../config/env";
 
-const transport = pino.transport({
-  targets: [
-    {
-      target: "pino-pretty",
-      options: {
-        destination: 1, // stdout
-        colorize: true,
-        translateTime: "SYS:standard",
+export const loggerConfig = {
+  level: env.NODE_ENV === "development" ? "debug" : "info",
+  transport: {
+    targets: [
+      {
+        target: "pino-pretty",
+        options: {
+          destination: 1,
+          colorize: true,
+          translateTime: "SYS:standard",
+        },
+        level: env.NODE_ENV === "development" ? "debug" : "info",
       },
-      level: env.NODE_ENV === "development" ? "debug" : "info",
-    },
-    ...(env.LOKI_HOST
-      ? [
-          {
-            target: "pino-loki",
-            options: {
-              batching: true,
-              interval: 5,
-              host: env.LOKI_HOST,
-              labels: { application: "fastify-backend" },
+      ...(env.LOKI_HOST
+        ? [
+            {
+              target: "pino-loki",
+              options: {
+                batching: true,
+                interval: 5,
+                host: env.LOKI_HOST,
+                labels: { application: "fastify-backend" },
+              },
+              level: "info",
             },
-            level: "info",
-          },
-        ]
-      : []),
-  ],
-});
-
-export const logger = pino(
-  {
-    level: env.NODE_ENV === "development" ? "debug" : "info",
-    timestamp: pino.stdTimeFunctions.isoTime,
+          ]
+        : []),
+    ],
   },
-  transport
-);
+};
+
+export const logger = pino(loggerConfig);
