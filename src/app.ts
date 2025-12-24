@@ -16,6 +16,8 @@ import {
   ZodTypeProvider,
 } from "fastify-type-provider-zod";
 
+import cors from "@fastify/cors";
+
 export function buildApp(): FastifyInstance {
   const app = Fastify({
     logger: loggerConfig,
@@ -24,6 +26,19 @@ export function buildApp(): FastifyInstance {
 
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
+
+  app.register(cors, {
+    origin: (origin, cb) => {
+      // Allow requests with no origin (like mobile apps/curl requests)
+      if (!origin) return cb(null, true);
+
+      const allowedOrigins = env.CORS_ORIGIN.split(",");
+      if (env.CORS_ORIGIN === "*" || allowedOrigins.includes(origin)) {
+        return cb(null, true);
+      }
+      return cb(new Error("Not allowed"), false);
+    },
+  });
 
   app.register(authGuardPlugin);
   app.register(authRoutes, { prefix: "/auth" });
