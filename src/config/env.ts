@@ -10,6 +10,10 @@ const envSchema = z.object({
   LOKI_HOST: z.string().url(),
   JWT_SECRET: z.string().min(10),
   CORS_ORIGIN: z.string().default("*"),
+  SMTP_HOST: z.string().default("smtp.gmail.com"),
+  SMTP_PORT: z.coerce.number().default(587),
+  SMTP_USER: z.string(),
+  SMTP_PASS: z.string(),
 });
 
 const _env = envSchema.safeParse(process.env);

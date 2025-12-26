@@ -15,6 +15,9 @@ import {
   serializerCompiler,
   ZodTypeProvider,
 } from "fastify-type-provider-zod";
+import { mailService } from "./services/mail.service";
+import { db } from "./db";
+import { sql } from "drizzle-orm";
 
 import cors from "@fastify/cors";
 
@@ -45,9 +48,26 @@ export function buildApp(): FastifyInstance {
   app.register(adminRoutes, { prefix: "/api/admin" });
   app.register(userRoutes, { prefix: "/api/user" });
 
-  // Health Check Generic
+  // Health Check with service statuses
   app.get("/health", async () => {
-    return { status: "ok", timestamp: new Date().toISOString() };
+    const emailConnected = mailService.getConnectionStatus();
+
+    let dbConnected = false;
+    try {
+      await db.execute(sql`select 1`);
+      dbConnected = true;
+    } catch (error) {
+      dbConnected = false;
+    }
+
+    return {
+      status: "ok",
+      timestamp: new Date().toISOString(),
+      services: {
+        database: dbConnected ? "connected" : "disconnected",
+        email: emailConnected ? "connected" : "disconnected",
+      },
+    };
   });
 
   // Global Error Handler
