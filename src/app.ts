@@ -1,147 +1,178 @@
-import Fastify, {
-  FastifyInstance,
-  FastifyError,
-  FastifyRequest,
-  FastifyReply,
-} from "fastify";
-import { loggerConfig } from "./utils/logger";
+import Fastify from "fastify";
+import cors from "@fastify/cors";
 import { env } from "./config/env";
-import authGuardPlugin from "./plugins/auth-guard";
-import { authRoutes } from "./routes/auth.routes";
-import { adminRoutes } from "./routes/admin.routes";
-import { userRoutes } from "./routes/user.routes";
+import authGuard from "./plugins/auth-guard";
+import { getHumanReadableDbError } from "./utils/db-error-handler";
+import { sanitizeStackTrace } from "./utils/error-sanitizer";
 import {
-  validatorCompiler,
   serializerCompiler,
+  validatorCompiler,
   ZodTypeProvider,
 } from "fastify-type-provider-zod";
-import { mailService } from "./services/mail.service";
-import { db } from "./db";
-import { sql } from "drizzle-orm";
-import { sanitizeStackTrace } from "./utils/error-sanitizer";
 
-import cors from "@fastify/cors";
+// Import routes
+import { authRoutes } from "./routes/auth.routes";
+import { userRoutes } from "./routes/user.routes";
 
-export function buildApp(): FastifyInstance {
+export function buildApp() {
   const app = Fastify({
-    logger: loggerConfig,
-    disableRequestLogging: false,
-  }).withTypeProvider<ZodTypeProvider>();
-
-  app.setValidatorCompiler(validatorCompiler);
-  app.setSerializerCompiler(serializerCompiler);
-
-  app.register(cors, {
-    origin: (origin, cb) => {
-      // Allow requests with no origin (like mobile apps/curl requests)
-      if (!origin) return cb(null, true);
-
-      const allowedOrigins = env.CORS_ORIGIN.split(",");
-      if (env.CORS_ORIGIN === "*" || allowedOrigins.includes(origin)) {
-        return cb(null, true);
-      }
-      return cb(new Error("Not allowed"), false);
+    logger: {
+      level: env.NODE_ENV === "production" ? "info" : "debug",
+      transport:
+        env.NODE_ENV === "development"
+          ? {
+              targets: [
+                {
+                  target: "pino-pretty",
+                  options: {
+                    colorize: true,
+                    translateTime: "SYS:standard",
+                    ignore: "pid,hostname",
+                  },
+                  level: "debug",
+                },
+                ...(env.LOKI_HOST
+                  ? [
+                      {
+                        target: "pino-loki",
+                        options: {
+                          batching: true,
+                          interval: 5,
+                          host: env.LOKI_HOST,
+                          labels: { application: "fastify-backend" },
+                        },
+                        level: "info",
+                      },
+                    ]
+                  : []),
+              ],
+            }
+          : env.LOKI_HOST
+          ? {
+              target: "pino-loki",
+              options: {
+                batching: true,
+                interval: 5,
+                host: env.LOKI_HOST,
+                labels: { application: "fastify-backend" },
+              },
+            }
+          : undefined,
     },
   });
 
-  app.register(authGuardPlugin);
-  app.register(authRoutes, { prefix: "/api/auth" });
-  app.register(adminRoutes, { prefix: "/api/admin" });
-  app.register(userRoutes, { prefix: "/api/user" });
+  // Set up Zod validation
+  app.setValidatorCompiler(validatorCompiler);
+  app.setSerializerCompiler(serializerCompiler);
 
-  // Health Check with service statuses
-  app.get("/health", async () => {
-    const emailConnected = mailService.getConnectionStatus();
-
-    let dbConnected = false;
-    try {
-      await db.execute(sql`select 1`);
-      dbConnected = true;
-    } catch (error) {
-      dbConnected = false;
-    }
-
-    return {
-      status: "ok",
-      timestamp: new Date().toISOString(),
-      services: {
-        database: dbConnected ? "connected" : "disconnected",
-        email: emailConnected ? "connected" : "disconnected",
-      },
-    };
+  // Register plugins
+  app.register(cors, {
+    origin: env.CORS_ORIGIN,
+    credentials: true,
   });
 
-  // Global Error Handler
-  app.setErrorHandler(
-    (error: FastifyError, request: FastifyRequest, reply: FastifyReply) => {
-      // Log the full error with stack trace for debugging
-      app.log.error(error);
+  app.register(authGuard);
 
-      const statusCode = error.statusCode || 500;
+  // Register routes
+  app.register(authRoutes, { prefix: "/api/auth" });
+  app.register(userRoutes, { prefix: "/api/users" });
 
-      // Check if this is a validation error from fastify-type-provider-zod
-      const isValidationError =
-        error.validation !== undefined || error.statusCode === 400;
+  // Global error handler
+  app.setErrorHandler((error, request, reply) => {
+    // Cast error for TypeScript
+    const err = error as any;
 
-      if (isValidationError && error.validation) {
-        // Format Zod validation errors into structured response
-        const validationErrors = error.validation.map((err: any) => ({
-          field:
-            err.instancePath?.replace(/^\//, "").replace(/\//g, ".") ||
-            err.params?.missingProperty ||
-            "unknown",
-          message: err.message || "Validation failed",
-        }));
+    // Log the full error for debugging
+    request.log.error(error);
 
-        const response = {
-          success: false,
-          error: "Validation failed",
-          errors: validationErrors,
-        };
+    // Check if it's a database error (Drizzle or PostgreSQL)
+    const errorCode = err.code;
+    const errorMessage = err.message;
+    if (
+      errorMessage?.includes("Failed query") ||
+      errorCode?.startsWith("23") || // PostgreSQL integrity constraints
+      errorCode?.startsWith("42") || // PostgreSQL syntax/schema errors
+      errorCode?.startsWith("22") // PostgreSQL data exceptions
+    ) {
+      const { message, field } = getHumanReadableDbError(error);
 
-        // Add sanitized stack in development
-        if (env.NODE_ENV === "development" && error.stack) {
-          (response as any).stack = sanitizeStackTrace(error.stack);
-        }
-
-        return reply.status(400).send(response);
+      // Determine status code
+      let statusCode = 500;
+      if (errorCode === "23505") statusCode = 409; // Conflict
+      if (errorCode === "23503") statusCode = 400; // Bad Request
+      if (errorCode === "42703" || errorCode === "42P01") {
+        statusCode = 500; // Schema issues
       }
 
-      // Handle custom ValidationError from services
-      if ((error as any).errors && Array.isArray((error as any).errors)) {
-        const response = {
-          success: false,
-          error: error.message || "Validation failed",
-          errors: (error as any).errors,
-        };
-
-        if (env.NODE_ENV === "development" && error.stack) {
-          (response as any).stack = sanitizeStackTrace(error.stack);
-        }
-
-        return reply.status(statusCode).send(response);
-      }
-
-      // Handle all other errors
-      const message = error.message || "Internal Server Error";
-
-      const response: {
-        success: boolean;
-        error: string;
-        stack?: string;
-      } = {
+      return reply.status(statusCode).send({
         success: false,
-        error: message,
-      };
-
-      // Only include sanitized stack in development
-      if (env.NODE_ENV === "development" && error.stack) {
-        response.stack = sanitizeStackTrace(error.stack);
-      }
-
-      reply.status(statusCode).send(response);
+        error: {
+          message,
+          field,
+          type: "DatabaseError",
+        },
+      });
     }
-  );
+
+    // Handle Fastify validation errors
+    if (err.validation) {
+      return reply.status(400).send({
+        success: false,
+        error: {
+          message: "Validation failed",
+          details: err.validation,
+          type: "ValidationError",
+        },
+      });
+    }
+
+    // Handle custom validation errors (from throwValidationError)
+    if (err.statusCode === 422) {
+      return reply.status(422).send({
+        success: false,
+        error: {
+          message: err.message,
+          type: "ValidationError",
+        },
+      });
+    }
+
+    // Handle JWT errors
+    if (err.message?.includes("jwt") || err.message?.includes("token")) {
+      return reply.status(401).send({
+        success: false,
+        error: {
+          message: "Invalid or expired token",
+          type: "AuthenticationError",
+        },
+      });
+    }
+
+    // Handle 404 errors
+    if (err.statusCode === 404) {
+      return reply.status(404).send({
+        success: false,
+        error: {
+          message: "Resource not found",
+          type: "NotFoundError",
+        },
+      });
+    }
+
+    // Generic error response (production vs development)
+    const isDevelopment = env.NODE_ENV === "development";
+
+    return reply.status(err.statusCode || 500).send({
+      success: false,
+      error: {
+        message: isDevelopment ? err.message : "An unexpected error occurred",
+        type: "ServerError",
+        ...(isDevelopment && {
+          stack: sanitizeStackTrace(err.stack),
+        }),
+      },
+    });
+  });
 
   return app;
 }

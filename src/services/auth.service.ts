@@ -52,7 +52,7 @@ export class AuthService {
       password: hashedPassword,
       role: input.role || UserRole.USER,
       emailVerified: false,
-      phoneNumberVerified: false,
+      mobileNumberVerified: false,
     };
 
     // Insert user

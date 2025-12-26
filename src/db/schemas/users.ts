@@ -1,11 +1,11 @@
 import {
+  boolean,
+  pgEnum,
   pgTable,
   text,
   timestamp,
-  uuid,
-  pgEnum,
-  boolean,
   uniqueIndex,
+  uuid,
 } from "drizzle-orm/pg-core";
 import { UserRole } from "../../types/user.types";
 
@@ -22,25 +22,15 @@ export const users = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     fullName: text("full_name").notNull(),
     userName: text("user_name").notNull().unique(),
-
-    // Email fields
-    email: text("email").unique(), // Made optional for OAuth users
+    email: text("email").unique(),
     emailVerified: boolean("email_verified").default(false).notNull(),
-
-    // Mobile number fields with country code
-    countryCode: text("country_code"), // e.g., "+1", "+91", "+44"
-    mobileNumber: text("mobile_number"), // Phone number without country code
-    phoneNumberVerified: boolean("phone_number_verified")
+    countryCode: text("country_code"),
+    mobileNumber: text("mobile_number"),
+    mobileNumberVerified: boolean("mobile_number_verified")
       .default(false)
       .notNull(),
-
-    // Authentication
-    password: text("password"), // Made optional for OAuth users
-
-    // Authorization
+    password: text("password"),
     role: roleEnum("role").default(UserRole.USER).notNull(),
-
-    // Timestamps
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: false })
       .defaultNow()
@@ -48,8 +38,6 @@ export const users = pgTable(
       .$onUpdate(() => new Date()),
   },
   (table) => ({
-    // Composite unique index for country code + phone number
-    // This ensures the combination is unique across the table
     phoneNumberIdx: uniqueIndex("phone_number_idx").on(
       table.countryCode,
       table.mobileNumber

@@ -1,0 +1,1 @@
+ALTER TABLE "users" RENAME COLUMN "phone_number_verified" TO "mobile_number_verified";
