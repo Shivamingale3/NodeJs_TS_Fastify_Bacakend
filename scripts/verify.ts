@@ -1,8 +1,5 @@
 import "dotenv/config";
 import { buildApp } from "../src/app";
-import { db } from "../src/db";
-import { users } from "../src/db/schema";
-import { sql } from "drizzle-orm";
 
 async function runVerification() {
   console.log("🚀 Starting Verification...");
@@ -25,11 +22,12 @@ async function runVerification() {
     const email = `test-${Date.now()}@example.com`;
     const register = await app.inject({
       method: "POST",
-      url: "/auth/register",
+      url: "/api/auth/register",
       payload: {
         email,
         password: "password123",
-        name: "Test User",
+        fullName: "Test User",
+        userName: `testuser${Date.now()}`,
         role: "USER",
       },
     });
@@ -48,7 +46,8 @@ async function runVerification() {
       payload: {
         email: adminEmail,
         password: "password123",
-        name: "Admin User",
+        fullName: "Admin User",
+        userName: `adminuser${Date.now()}`,
         role: "ADMIN",
       },
     });

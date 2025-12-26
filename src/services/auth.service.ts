@@ -1,73 +1,129 @@
-import { eq } from "drizzle-orm";
+import { FastifyInstance } from "fastify";
 import { db } from "../db";
 import { users } from "../db/schemas/users";
+import { eq, or } from "drizzle-orm";
 import { hashPassword, comparePassword } from "../utils/auth";
-import { CreateUserType } from "../types/user.types";
-import { FastifyInstance } from "fastify";
+import { RegisterInput, LoginInput } from "../types/auth.types";
 import { UserRole } from "../types/user.types";
 
 export class AuthService {
   constructor(private app: FastifyInstance) {}
 
-  async register(
-    input: CreateUserType
-  ): Promise<{
-    user: { id: string; email: string; role: string; name: string };
-    token: string;
-  }> {
-    const existingUser = await db.query.users.findFirst({
-      where: eq(users.email, input.email),
-    });
+  async register(input: RegisterInput) {
+    // Check if user already exists by email, username, or phone number
+    const existingUser = await db
+      .select()
+      .from(users)
+      .where(
+        or(
+          input.email ? eq(users.email, input.email) : undefined,
+          eq(users.userName, input.userName),
+          input.mobileNumber && input.countryCode
+            ? eq(users.mobileNumber, input.mobileNumber)
+            : undefined
+        )
+      )
+      .limit(1);
 
-    if (existingUser) {
-      throw new Error("User already exists");
+    if (existingUser.length > 0) {
+      throw new Error(
+        "User already exists with this email, username, or phone number"
+      );
     }
 
+    // Hash password
     const hashedPassword = await hashPassword(input.password);
 
-    const [newUser] = await db
-      .insert(users)
-      .values({
-        name: input.name,
-        email: input.email,
-        password: hashedPassword,
-        role: input.role || UserRole.USER,
-      })
-      .returning();
+    // Prepare user data - handle empty strings as undefined
+    const userData = {
+      fullName: input.fullName,
+      userName: input.userName,
+      email: input.email && input.email.trim() !== "" ? input.email : undefined,
+      countryCode:
+        input.countryCode && input.countryCode.trim() !== ""
+          ? input.countryCode
+          : undefined,
+      mobileNumber:
+        input.mobileNumber && input.mobileNumber.trim() !== ""
+          ? input.mobileNumber
+          : undefined,
+      password: hashedPassword,
+      role: input.role || UserRole.USER,
+      emailVerified: false,
+      phoneNumberVerified: false,
+    };
 
+    // Insert user
+    const [newUser] = await db.insert(users).values(userData).returning();
+
+    // Generate JWT token
     const token = this.app.jwt.sign({
       id: newUser.id,
-      email: newUser.email,
+      userName: newUser.userName,
       role: newUser.role,
     });
 
-    const { password, createdAt, updatedAt, ...userWithoutPassword } = newUser;
+    // Return user without password
+    const { password, ...userWithoutPassword } = newUser;
 
-    return { user: userWithoutPassword, token };
+    return {
+      success: true,
+      message: "User registered successfully",
+      data: {
+        user: userWithoutPassword,
+        token,
+      },
+    };
   }
 
-  async login(
-    input: Pick<CreateUserType, "email" | "password">
-  ): Promise<{
-    user: { id: string; email: string; role: string; name: string };
-    token: string;
-  }> {
-    const user = await db.query.users.findFirst({
-      where: eq(users.email, input.email),
-    });
+  async login(input: LoginInput) {
+    // Find user by email or username
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(
+        or(
+          eq(users.email, input.identifier),
+          eq(users.userName, input.identifier)
+        )
+      )
+      .limit(1);
 
-    if (!user || !(await comparePassword(input.password, user.password))) {
-      throw { statusCode: 401, message: "Invalid email or password" };
+    if (!user) {
+      throw new Error("Invalid credentials");
     }
 
+    // Check password
+    if (!user.password) {
+      throw new Error("This account uses OAuth login");
+    }
+
+    const isPasswordValid = await comparePassword(
+      input.password,
+      user.password
+    );
+
+    if (!isPasswordValid) {
+      throw new Error("Invalid credentials");
+    }
+
+    // Generate JWT token
     const token = this.app.jwt.sign({
       id: user.id,
-      email: user.email,
+      userName: user.userName,
       role: user.role,
     });
 
-    const { password, createdAt, updatedAt, ...userWithoutPassword } = user;
+    // Return user without password
+    const { password, ...userWithoutPassword } = user;
 
-    return { user: userWithoutPassword, token };
+    return {
+      success: true,
+      message: "Login successful",
+      data: {
+        user: userWithoutPassword,
+        token,
+      },
+    };
   }
 }
