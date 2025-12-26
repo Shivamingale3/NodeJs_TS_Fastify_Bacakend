@@ -41,7 +41,7 @@ export function buildApp(): FastifyInstance {
   });
 
   app.register(authGuardPlugin);
-  app.register(authRoutes, { prefix: "/auth" });
+  app.register(authRoutes, { prefix: "/api/auth" });
   app.register(adminRoutes, { prefix: "/api/admin" });
   app.register(userRoutes, { prefix: "/api/user" });
 
