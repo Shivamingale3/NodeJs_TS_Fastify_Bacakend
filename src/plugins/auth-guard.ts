@@ -1,7 +1,9 @@
+/// <reference path="../types/fastify.d.ts" />
 import fp from "fastify-plugin";
 import { FastifyPluginAsync, FastifyRequest, FastifyReply } from "fastify";
 import fjwt from "@fastify/jwt";
 import { env } from "../config/env";
+import { UserRole } from "../types/user.types";
 
 const authGuardPlugin: FastifyPluginAsync = async (app) => {
   // Register JWT plugin
@@ -34,9 +36,19 @@ const authGuardPlugin: FastifyPluginAsync = async (app) => {
       if (routeConfig?.public) {
         return;
       }
-
       try {
         await request.jwtVerify();
+
+        if (routeConfig?.roles) {
+          const user = request.user as { role: UserRole };
+          if (!user || !routeConfig.roles.includes(user.role as UserRole)) {
+            return reply.status(403).send({
+              success: false,
+              message: "Forbidden",
+              error: "Insufficient Permissions",
+            });
+          }
+        }
       } catch (err) {
         reply.status(401).send({
           success: false,
