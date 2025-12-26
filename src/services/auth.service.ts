@@ -5,6 +5,7 @@ import { eq, or } from "drizzle-orm";
 import { hashPassword, comparePassword } from "../utils/auth";
 import { RegisterInput, LoginInput } from "../types/auth.types";
 import { UserRole } from "../types/user.types";
+import { throwValidationError } from "../utils/validation-error";
 
 export class AuthService {
   constructor(private app: FastifyInstance) {}
@@ -26,7 +27,8 @@ export class AuthService {
       .limit(1);
 
     if (existingUser.length > 0) {
-      throw new Error(
+      throwValidationError(
+        "user",
         "User already exists with this email, username, or phone number"
       );
     }
@@ -90,12 +92,12 @@ export class AuthService {
       .limit(1);
 
     if (!user) {
-      throw new Error("Invalid credentials");
+      throwValidationError("identifier", "Invalid credentials");
     }
 
     // Check password
     if (!user.password) {
-      throw new Error("This account uses OAuth login");
+      throwValidationError("identifier", "This account uses OAuth login");
     }
 
     const isPasswordValid = await comparePassword(
@@ -104,7 +106,7 @@ export class AuthService {
     );
 
     if (!isPasswordValid) {
-      throw new Error("Invalid credentials");
+      throwValidationError("password", "Invalid credentials");
     }
 
     // Generate JWT token

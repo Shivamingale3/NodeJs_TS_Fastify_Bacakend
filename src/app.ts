@@ -18,6 +18,7 @@ import {
 import { mailService } from "./services/mail.service";
 import { db } from "./db";
 import { sql } from "drizzle-orm";
+import { sanitizeStackTrace } from "./utils/error-sanitizer";
 
 import cors from "@fastify/cors";
 
@@ -73,18 +74,72 @@ export function buildApp(): FastifyInstance {
   // Global Error Handler
   app.setErrorHandler(
     (error: FastifyError, request: FastifyRequest, reply: FastifyReply) => {
+      // Log the full error with stack trace for debugging
       app.log.error(error);
 
-      // Zod Validation Errors
-
       const statusCode = error.statusCode || 500;
+
+      // Check if this is a validation error from fastify-type-provider-zod
+      const isValidationError =
+        error.validation !== undefined || error.statusCode === 400;
+
+      if (isValidationError && error.validation) {
+        // Format Zod validation errors into structured response
+        const validationErrors = error.validation.map((err: any) => ({
+          field:
+            err.instancePath?.replace(/^\//, "").replace(/\//g, ".") ||
+            err.params?.missingProperty ||
+            "unknown",
+          message: err.message || "Validation failed",
+        }));
+
+        const response = {
+          success: false,
+          error: "Validation failed",
+          errors: validationErrors,
+        };
+
+        // Add sanitized stack in development
+        if (env.NODE_ENV === "development" && error.stack) {
+          (response as any).stack = sanitizeStackTrace(error.stack);
+        }
+
+        return reply.status(400).send(response);
+      }
+
+      // Handle custom ValidationError from services
+      if ((error as any).errors && Array.isArray((error as any).errors)) {
+        const response = {
+          success: false,
+          error: error.message || "Validation failed",
+          errors: (error as any).errors,
+        };
+
+        if (env.NODE_ENV === "development" && error.stack) {
+          (response as any).stack = sanitizeStackTrace(error.stack);
+        }
+
+        return reply.status(statusCode).send(response);
+      }
+
+      // Handle all other errors
       const message = error.message || "Internal Server Error";
 
-      reply.status(statusCode).send({
+      const response: {
+        success: boolean;
+        error: string;
+        stack?: string;
+      } = {
         success: false,
         error: message,
-        ...(env.NODE_ENV === "development" ? { stack: error.stack } : {}),
-      });
+      };
+
+      // Only include sanitized stack in development
+      if (env.NODE_ENV === "development" && error.stack) {
+        response.stack = sanitizeStackTrace(error.stack);
+      }
+
+      reply.status(statusCode).send(response);
     }
   );
 
