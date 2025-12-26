@@ -6,7 +6,9 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "ts-node src/server.ts",
+    "prestart": "npx kill-port 9090 || true",
     "dev": "nodemon src/server.ts",
+    "predev": "npx kill-port 9090 || true",
     "type-check": "tsc --noEmit",
     "prepare": "husky"
   },
