@@ -1,5 +1,6 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import cookie from "@fastify/cookie";
 import { env } from "./config/env";
 import authGuard from "./plugins/auth-guard";
 import { getHumanReadableDbError } from "./utils/db-error-handler";
@@ -71,6 +72,11 @@ export function buildApp() {
     credentials: true,
   });
 
+  app.register(cookie, {
+    secret: env.JWT_SECRET, // for signed cookies
+    parseOptions: {}, // options for cookie parsing
+  });
+
   app.register(authGuard);
 
   // Register routes
@@ -84,6 +90,8 @@ export function buildApp() {
 
     // Log the full error for debugging
     request.log.error(error);
+
+    const timestamp = new Date().toISOString();
 
     // Check if it's a database error (Drizzle or PostgreSQL)
     const errorCode = err.code;
@@ -107,33 +115,46 @@ export function buildApp() {
       return reply.status(statusCode).send({
         success: false,
         error: {
-          message,
-          field,
           type: "DatabaseError",
+          message,
+          ...(field && { errors: [{ field, message }] }),
         },
+        timestamp,
       });
     }
 
-    // Handle Fastify validation errors
+    // Handle Fastify/Zod validation errors
     if (err.validation) {
+      const errors = err.validation.map((v: any) => ({
+        field:
+          v.instancePath?.replace(/^\//, "") ||
+          v.params?.missingProperty ||
+          "unknown",
+        message: v.message || "Invalid value",
+        code: v.keyword,
+      }));
+
       return reply.status(400).send({
         success: false,
         error: {
-          message: "Validation failed",
-          details: err.validation,
           type: "ValidationError",
+          message: "Validation failed",
+          errors,
         },
+        timestamp,
       });
     }
 
     // Handle custom validation errors (from throwValidationError)
-    if (err.statusCode === 422) {
+    if (err.name === "ValidationError" && err.errors) {
       return reply.status(422).send({
         success: false,
         error: {
-          message: err.message,
           type: "ValidationError",
+          message: err.message,
+          errors: err.errors,
         },
+        timestamp,
       });
     }
 
@@ -142,9 +163,10 @@ export function buildApp() {
       return reply.status(401).send({
         success: false,
         error: {
-          message: "Invalid or expired token",
           type: "AuthenticationError",
+          message: "Invalid or expired token",
         },
+        timestamp,
       });
     }
 
@@ -153,9 +175,10 @@ export function buildApp() {
       return reply.status(404).send({
         success: false,
         error: {
-          message: "Resource not found",
           type: "NotFoundError",
+          message: "Resource not found",
         },
+        timestamp,
       });
     }
 
@@ -165,12 +188,15 @@ export function buildApp() {
     return reply.status(err.statusCode || 500).send({
       success: false,
       error: {
-        message: isDevelopment ? err.message : "An unexpected error occurred",
         type: "ServerError",
+        message: isDevelopment ? err.message : "An unexpected error occurred",
         ...(isDevelopment && {
-          stack: sanitizeStackTrace(err.stack),
+          metadata: {
+            stack: sanitizeStackTrace(err.stack),
+          },
         }),
       },
+      timestamp,
     });
   });
 

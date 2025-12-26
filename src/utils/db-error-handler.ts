@@ -1,4 +1,4 @@
-import { FastifyReply } from "fastify";
+import { createDatabaseErrorResponse } from "../types/error.types";
 
 /**
  * Database error codes and their human-readable messages
@@ -27,11 +27,12 @@ function extractColumnFromConstraint(constraint: string): string | null {
 }
 
 /**
- * Convert PostgreSQL error to human-readable message
+ * Convert PostgreSQL error to human-readable message with standardized format
  */
 export function getHumanReadableDbError(error: any): {
   message: string;
   field?: string;
+  code?: string;
 } {
   // Handle Drizzle query errors
   if (error.message?.includes("Failed query")) {
@@ -49,6 +50,7 @@ export function getHumanReadableDbError(error: any): {
           columnMatch?.[1] || "unknown"
         }' is missing. Please run migrations.`,
         field: columnMatch?.[1],
+        code: "42703",
       };
     }
 
@@ -62,6 +64,7 @@ export function getHumanReadableDbError(error: any): {
         message: `Database table '${
           tableMatch?.[1] || "unknown"
         }' not found. Please run migrations.`,
+        code: "42P01",
       };
     }
 
@@ -75,6 +78,7 @@ export function getHumanReadableDbError(error: any): {
         message: `Database type '${
           typeMatch?.[1] || "unknown"
         }' already exists. Schema is up to date or needs manual cleanup.`,
+        code: "42710",
       };
     }
   }
@@ -90,6 +94,7 @@ export function getHumanReadableDbError(error: any): {
       return {
         message: column ? `${column} already exists` : baseMessage,
         field: column || error.constraint,
+        code: error.code,
       };
     }
 
@@ -97,36 +102,18 @@ export function getHumanReadableDbError(error: any): {
       return {
         message: `${baseMessage}. Please ensure all related data exists.`,
         field: error.constraint,
+        code: error.code,
       };
     }
 
-    return { message: baseMessage };
+    return {
+      message: baseMessage,
+      code: error.code,
+    };
   }
 
   // Fallback for unknown errors
   return {
     message: "An unexpected database error occurred",
   };
-}
-
-/**
- * Handle database errors in Fastify routes
- */
-export function handleDbError(error: any, reply: FastifyReply) {
-  const { message, field } = getHumanReadableDbError(error);
-
-  // Determine status code based on error type
-  let statusCode = 500;
-  if (error.code === "23505") statusCode = 409; // Conflict
-  if (error.code === "23503") statusCode = 400; // Bad Request
-  if (error.code === "42703" || error.code === "42P01") statusCode = 500; // Internal Server Error (schema issue)
-
-  reply.status(statusCode).send({
-    success: false,
-    error: {
-      message,
-      field,
-      type: "DatabaseError",
-    },
-  });
 }

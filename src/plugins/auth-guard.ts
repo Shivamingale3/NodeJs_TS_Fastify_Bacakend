@@ -9,6 +9,10 @@ const authGuardPlugin: FastifyPluginAsync = async (app) => {
   // Register JWT plugin
   app.register(fjwt, {
     secret: env.JWT_SECRET,
+    cookie: {
+      cookieName: "token",
+      signed: false,
+    },
   });
 
   app.decorate(
@@ -44,16 +48,22 @@ const authGuardPlugin: FastifyPluginAsync = async (app) => {
           if (!user || !routeConfig.roles.includes(user.role as UserRole)) {
             return reply.status(403).send({
               success: false,
-              message: "Forbidden",
-              error: "Insufficient Permissions",
+              error: {
+                type: "AuthorizationError",
+                message: "Insufficient Permissions",
+              },
+              timestamp: new Date().toISOString(),
             });
           }
         }
       } catch (err) {
         reply.status(401).send({
           success: false,
-          message: "Unauthorized",
-          error: "Missing or Invalid Token",
+          error: {
+            type: "AuthenticationError",
+            message: "Missing or Invalid Token",
+          },
+          timestamp: new Date().toISOString(),
         });
       }
     }

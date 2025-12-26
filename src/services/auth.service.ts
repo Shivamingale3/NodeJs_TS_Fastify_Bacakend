@@ -1,10 +1,10 @@
+import { and, eq, or } from "drizzle-orm";
 import { FastifyInstance } from "fastify";
 import { db } from "../db";
 import { users } from "../db/schemas/users";
-import { eq, or } from "drizzle-orm";
-import { hashPassword, comparePassword } from "../utils/auth";
-import { RegisterInput, LoginInput } from "../types/auth.types";
+import { LoginInput, RegisterInput } from "../types/auth.types";
 import { UserRole } from "../types/user.types";
+import { comparePassword, hashPassword } from "../utils/auth";
 import { throwValidationError } from "../utils/validation-error";
 
 export class AuthService {
@@ -18,9 +18,11 @@ export class AuthService {
       .where(
         or(
           input.email ? eq(users.email, input.email) : undefined,
-          eq(users.userName, input.userName),
           input.mobileNumber && input.countryCode
-            ? eq(users.mobileNumber, input.mobileNumber)
+            ? and(
+                eq(users.countryCode, input.countryCode),
+                eq(users.mobileNumber, input.mobileNumber)
+              )
             : undefined
         )
       )
@@ -29,7 +31,7 @@ export class AuthService {
     if (existingUser.length > 0) {
       throwValidationError(
         "user",
-        "User already exists with this email, username, or phone number"
+        "User already exists with this email or phone number"
       );
     }
 
@@ -39,7 +41,6 @@ export class AuthService {
     // Prepare user data - handle empty strings as undefined
     const userData = {
       fullName: input.fullName,
-      userName: input.userName,
       email: input.email && input.email.trim() !== "" ? input.email : undefined,
       countryCode:
         input.countryCode && input.countryCode.trim() !== ""
@@ -55,49 +56,51 @@ export class AuthService {
       mobileNumberVerified: false,
     };
 
-    // Insert user
-    const [newUser] = await db.insert(users).values(userData).returning();
-
-    // Generate JWT token
-    const token = this.app.jwt.sign({
-      id: newUser.id,
-      userName: newUser.userName,
-      role: newUser.role,
-    });
-
-    // Return user without password
-    const { password, ...userWithoutPassword } = newUser;
+    await db.insert(users).values(userData).returning();
 
     return {
       success: true,
       message: "User registered successfully",
-      data: {
-        user: userWithoutPassword,
-        token,
-      },
+      data: null,
     };
   }
 
   async login(input: LoginInput) {
-    // Find user by email or username
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(
-        or(
-          eq(users.email, input.identifier),
-          eq(users.userName, input.identifier)
-        )
-      )
-      .limit(1);
+    // Build where clause based on login method
+    let whereClause;
+
+    if (input.email) {
+      // Login with email
+      whereClause = eq(users.email, input.email);
+    } else if (input.mobile) {
+      // Login with mobile (country code + number)
+      whereClause = and(
+        eq(users.countryCode, input.mobile.countryCode),
+        eq(users.mobileNumber, input.mobile.mobileNumber)
+      );
+    } else {
+      throwValidationError(
+        "email",
+        "Either email or mobile number is required"
+      );
+    }
+
+    // Find user
+    const [user] = await db.select().from(users).where(whereClause).limit(1);
 
     if (!user) {
-      throwValidationError("identifier", "Invalid credentials");
+      throwValidationError(
+        input.email ? "email" : "mobile",
+        "Invalid credentials"
+      );
     }
 
     // Check password
     if (!user.password) {
-      throwValidationError("identifier", "This account uses OAuth login");
+      throwValidationError(
+        input.email ? "email" : "mobile",
+        "This account uses OAuth login"
+      );
     }
 
     const isPasswordValid = await comparePassword(
@@ -112,7 +115,7 @@ export class AuthService {
     // Generate JWT token
     const token = this.app.jwt.sign({
       id: user.id,
-      userName: user.userName,
+      email: user.email,
       role: user.role,
     });
 
@@ -122,10 +125,7 @@ export class AuthService {
     return {
       success: true,
       message: "Login successful",
-      data: {
-        user: userWithoutPassword,
-        token,
-      },
+      token,
     };
   }
 }

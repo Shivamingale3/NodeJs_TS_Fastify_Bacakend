@@ -1,13 +1,17 @@
 import { ZodError, ZodIssue } from "zod";
+import {
+  ErrorDetail,
+  createValidationErrorResponse,
+} from "../types/error.types";
 
 /**
  * Custom validation error class for better error handling
  */
 export class ValidationError extends Error {
-  public statusCode: number = 400;
-  public errors: ValidationErrorDetail[];
+  public statusCode: number = 422;
+  public errors: ErrorDetail[];
 
-  constructor(message: string, errors: ValidationErrorDetail[]) {
+  constructor(message: string, errors: ErrorDetail[]) {
     super(message);
     this.name = "ValidationError";
     this.errors = errors;
@@ -15,18 +19,9 @@ export class ValidationError extends Error {
 }
 
 /**
- * Validation error detail structure
- */
-export interface ValidationErrorDetail {
-  field: string;
-  message: string;
-  code?: string;
-}
-
-/**
  * Format Zod errors into structured validation errors
  */
-export function formatZodError(zodError: ZodError): ValidationErrorDetail[] {
+export function formatZodError(zodError: ZodError): ErrorDetail[] {
   return zodError.issues.map((issue: ZodIssue) => ({
     field: issue.path.join(".") || "root",
     message: issue.message,
@@ -39,9 +34,7 @@ export function formatZodError(zodError: ZodError): ValidationErrorDetail[] {
  */
 export function createValidationError(zodError: ZodError): ValidationError {
   const errors = formatZodError(zodError);
-  const message = `Validation failed: ${errors
-    .map((e) => `${e.field} - ${e.message}`)
-    .join(", ")}`;
+  const message = errors.length === 1 ? errors[0].message : "Validation failed";
   return new ValidationError(message, errors);
 }
 
@@ -49,9 +42,7 @@ export function createValidationError(zodError: ZodError): ValidationError {
  * Throw a validation error (useful for service layer)
  */
 export function throwValidationError(field: string, message: string): never {
-  throw new ValidationError(`Validation failed: ${field} - ${message}`, [
-    { field, message },
-  ]);
+  throw new ValidationError(message, [{ field, message }]);
 }
 
 /**
@@ -60,8 +51,6 @@ export function throwValidationError(field: string, message: string): never {
 export function createCustomValidationError(
   errors: Array<{ field: string; message: string }>
 ): ValidationError {
-  const message = `Validation failed: ${errors
-    .map((e) => `${e.field} - ${e.message}`)
-    .join(", ")}`;
+  const message = errors.length === 1 ? errors[0].message : "Validation failed";
   return new ValidationError(message, errors);
 }

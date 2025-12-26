@@ -30,4 +30,6 @@ export async function authRoutes(app: FastifyInstance) {
   );
 
   app.get("/me", authController.me.bind(authController));
+
+  app.post("/logout", authController.logout.bind(authController));
 }
