@@ -3,14 +3,6 @@ import { FastifyPluginAsync, FastifyRequest, FastifyReply } from "fastify";
 import fjwt from "@fastify/jwt";
 import { env } from "../config/env";
 
-// Extend FastifyContextConfig to include public flag
-declare module "fastify" {
-  interface FastifyContextConfig {
-    public?: boolean;
-    roles?: string[]; // For RBAC
-  }
-}
-
 const authGuardPlugin: FastifyPluginAsync = async (app) => {
   // Register JWT plugin
   app.register(fjwt, {
@@ -46,13 +38,11 @@ const authGuardPlugin: FastifyPluginAsync = async (app) => {
       try {
         await request.jwtVerify();
       } catch (err) {
-        reply
-          .status(401)
-          .send({
-            success: false,
-            message: "Unauthorized",
-            error: "Missing or Invalid Token",
-          });
+        reply.status(401).send({
+          success: false,
+          message: "Unauthorized",
+          error: "Missing or Invalid Token",
+        });
       }
     }
   );
